@@ -10,10 +10,13 @@ internal sealed class FakeHandler(params object[] replies) : HttpMessageHandler
 {
     private readonly Queue<object> _replies = new(replies);
     public List<HttpRequestMessage> Calls { get; } = new();
+    /// <summary>Request bodies, read on arrival (the SDK disposes requests after sending).</summary>
+    public List<string?> Bodies { get; } = new();
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         Calls.Add(request);
+        Bodies.Add(request.Content?.ReadAsStringAsync(ct).GetAwaiter().GetResult());
         var r = _replies.Dequeue();
         if (r is Exception e) throw e;
         var (status, body, headers) = ((int, object?, Dictionary<string, string>?))r;
@@ -147,6 +150,10 @@ public class CoreTests
         Assert.Equal("req_1", e.RequestId);
         var (c2, _, _) = Client(new FakeHandler(Err(409, "idempotency_key_reused")));
         await Assert.ThrowsAsync<ConflictException>(() => c2.Transfers.CreateAsync(new TransferParams { SourceAccountId = "a", DestinationAccountId = "b", AmountMinor = 9 }));
+        var (c3, h3, _) = Client(new FakeHandler(Err(409, "fee_changed", new { fees_total_minor = 70 })));
+        var fc = await Assert.ThrowsAsync<FeeChangedException>(() => c3.Transfers.CreateAsync(new TransferParams { SourceAccountId = "a", DestinationAccountId = "b", AmountMinor = 9, MaxFeeMinor = 60 }));
+        Assert.Equal(70L, fc.Details["fees_total_minor"]);
+        Assert.Contains("\"max_fee_minor\":60", h3.Bodies[0]);
     }
 
     [Fact]

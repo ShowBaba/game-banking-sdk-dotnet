@@ -34,6 +34,7 @@ public class GameBankException : Exception
         401 => new AuthenticationException(status, code, message, details, requestId, retryAfter, inner),
         403 => new PermissionDeniedException(status, code, message, details, requestId, retryAfter, inner),
         404 => new NotFoundException(status, code, message, details, requestId, retryAfter, inner),
+        409 when code == "fee_changed" => new FeeChangedException(status, code, message, details, requestId, retryAfter, inner),
         409 => new ConflictException(status, code, message, details, requestId, retryAfter, inner),
         429 => new RateLimitException(status, code, message, details, requestId, retryAfter, inner),
         422 when code == "insufficient_funds" => new InsufficientFundsException(status, code, message, details, requestId, retryAfter, inner),
@@ -57,6 +58,12 @@ public class NotFoundException(int s, string c, string m, IReadOnlyDictionary<st
 /// <summary>409: e.g. idempotency_key_reused, already_reversed.</summary>
 public class ConflictException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)
     : GameBankException(s, c, m, d, r, ra, i);
+/// <summary>
+/// 409 fee_changed: the fees now total more than the request's MaxFeeMinor, e.g. the fee schedule
+/// changed after the player saw a quote. Details["fees"] lists the current charges; get a new quote.
+/// </summary>
+public class FeeChangedException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)
+    : ConflictException(s, c, m, d, r, ra, i);
 /// <summary>400, 413, 415, or a request the SDK rejected before sending it.</summary>
 public class InvalidRequestException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)
     : GameBankException(s, c, m, d, r, ra, i);

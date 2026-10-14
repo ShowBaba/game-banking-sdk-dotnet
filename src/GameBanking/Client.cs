@@ -37,6 +37,7 @@ public sealed class GameBankClient
     public HoldsResource Holds { get; }
     public TransactionsResource Transactions { get; }
     public BanksResource Banks { get; }
+    public FeesResource Fees { get; }
     public CurrenciesResource Currencies { get; }
     public ClockResource Clock { get; }
 
@@ -46,7 +47,7 @@ public sealed class GameBankClient
     {
         _t = t;
         Players = new(t); Accounts = new(t); Funding = new(t); Transfers = new(t); Holds = new(t);
-        Transactions = new(t); Banks = new(t); Currencies = new(t); Clock = new(t);
+        Transactions = new(t); Banks = new(t); Fees = new(t); Currencies = new(t); Clock = new(t);
     }
 
     internal Transport Transport => _t;
@@ -220,9 +221,45 @@ public sealed class BanksResource
     public Task<Limits> LimitsAsync(string bankId, RequestOptions? o = null, CancellationToken ct = default) =>
         _t.SendAsync<Limits>(new(HttpMethod.Get, $"/v1/banks/{Ops.Id(bankId)}/limits"), o, ct);
 
+    /// <summary>The bank's own ledger accounts: fee income earned and levies held.</summary>
+    public Task<BankBooks> BooksAsync(string bankId, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<BankBooks>(new(HttpMethod.Get, $"/v1/banks/{Ops.Id(bankId)}/books"), o, ct);
+
     /// <summary>Sets caps per scope (see <see cref="LimitScopes"/>); a null policy removes that scope's limits. Needs limits:write.</summary>
     public Task<Limits> SetLimitsAsync(string bankId, IReadOnlyDictionary<string, LimitPolicy?> limits, RequestOptions? o = null, CancellationToken ct = default) =>
         _t.SendAsync<Limits>(new(HttpMethod.Put, $"/v1/banks/{Ops.Id(bankId)}/limits") { Body = limits }, o, ct);
+}
+
+/// <summary>A bank's fees and levies, and fee quotes.</summary>
+public sealed class FeesResource
+{
+    private readonly Transport _t;
+    internal FeesResource(Transport t) => _t = t;
+
+    /// <summary>A bank's fee rules, active and inactive, each with its current State.</summary>
+    public async Task<List<FeeRule>> ListAsync(string bankId, RequestOptions? o = null, CancellationToken ct = default) =>
+        (await _t.SendAsync<DataList<FeeRule>>(new(HttpMethod.Get, $"/v1/banks/{Ops.Id(bankId)}/fees"), o, ct).ConfigureAwait(false)).Data;
+
+    public Task<FeeRule> GetAsync(string bankId, string feeId, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<FeeRule>(new(HttpMethod.Get, $"/v1/banks/{Ops.Id(bankId)}/fees/{Ops.Id(feeId)}"), o, ct);
+
+    /// <summary>Adds a fee or levy. Needs bank:write.</summary>
+    public Task<FeeRule> CreateAsync(string bankId, CreateFeeRuleParams p, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<FeeRule>(new(HttpMethod.Post, $"/v1/banks/{Ops.Id(bankId)}/fees") { Body = p }, o, ct);
+
+    /// <summary>Changes, pauses (Status "inactive") or resumes a fee; bumps its version. Needs bank:write.</summary>
+    public Task<FeeRule> UpdateAsync(string bankId, string feeId, UpdateFeeRuleParams p, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<FeeRule>(new(HttpMethod.Patch, $"/v1/banks/{Ops.Id(bankId)}/fees/{Ops.Id(feeId)}") { Body = p }, o, ct);
+
+    /// <summary>
+    /// What a transfer or hold capture would cost now. Show it to the player, then pass FeesTotalMinor as
+    /// MaxFeeMinor on the payment.
+    /// </summary>
+    public Task<FeeQuote> QuoteAsync(QuoteFeesParams p, RequestOptions? o = null, CancellationToken ct = default)
+    {
+        Ops.CheckAmount(p.AmountMinor, true);
+        return _t.SendAsync<FeeQuote>(new(HttpMethod.Post, "/v1/fees/quote") { Body = p }, o, ct);
+    }
 }
 
 public sealed class CurrenciesResource
@@ -303,9 +340,20 @@ public sealed class GamesResource
     public Task<Game> GetAsync(string gameId, RequestOptions? o = null, CancellationToken ct = default) =>
         _t.SendAsync<Game>(new(HttpMethod.Get, $"/v1/games/{Ops.Id(gameId)}"), o, ct);
 
+    /// <summary>Renames a game, changes its slug, or suspends or reactivates it.</summary>
+    public Task<Game> UpdateAsync(string gameId, UpdateGameParams p, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<Game>(new(HttpMethod.Patch, $"/v1/games/{Ops.Id(gameId)}") { Body = p }, o, ct);
+
     /// <summary>Suspends or reactivates a game ("active" or "suspended").</summary>
     public Task<Game> SetStatusAsync(string gameId, string status, RequestOptions? o = null, CancellationToken ct = default) =>
-        _t.SendAsync<Game>(new(HttpMethod.Patch, $"/v1/games/{Ops.Id(gameId)}") { Body = new Dictionary<string, string> { ["status"] = status } }, o, ct);
+        UpdateAsync(gameId, new UpdateGameParams { Status = status }, o, ct);
+
+    /// <summary>
+    /// Deletes a game permanently: its API keys are revoked at once and it leaves the developer API.
+    /// Ledger and audit history are kept.
+    /// </summary>
+    public Task DeleteAsync(string gameId, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync(new(HttpMethod.Delete, $"/v1/games/{Ops.Id(gameId)}"), o, ct);
 }
 
 public sealed class ApiKeysResource

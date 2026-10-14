@@ -42,6 +42,31 @@ await foreach (var line in gb.Accounts.IterateTransactionsAsync(account.Id))
 
 Every method is async and takes an optional `CancellationToken`. Pass your own `HttpClient` (for example from `IHttpClientFactory`) with `GameBankOptions.HttpClient`.
 
+## Fees and charges
+
+```csharp
+// Show the player what the transfer costs, then cap the fee at what they saw.
+var quote = await gb.Fees.QuoteAsync(new QuoteFeesParams { BankId = bankId, AmountMinor = 2_000_00 });
+try
+{
+    var r = await gb.Transfers.CreateAsync(new TransferParams
+    {
+        SourceAccountId = account.Id, DestinationAccountNumber = "5915945174",
+        AmountMinor = 2_000_00, MaxFeeMinor = quote.FeesTotalMinor,
+    });
+    Console.WriteLine($"{r.FeesTotalMinor} {r.TotalDebitMinor}"); // each fee is its own ledger and statement line
+}
+catch (FeeChangedException) { /* the schedule changed: quote again */ }
+
+// Configure fees (bank:write): ₦50 + 1%, capped at ₦500, on transfers of ₦1,000 or more.
+await gb.Fees.CreateAsync(bankId, new CreateFeeRuleParams
+{
+    Code = "transfer_fee", Name = "Transfer fee", Event = FeeEvents.Transfer, Model = FeeModels.Combined,
+    FixedMinor = 50_00, PercentageBps = 100, MaxFeeMinor = 500_00, MinAmountMinor = 1_000_00,
+});
+var books = await gb.Banks.BooksAsync(bankId); // FeeIncomeMinor, LeviesPayableMinor
+```
+
 ## Setup and CI
 
 ```csharp
@@ -51,6 +76,8 @@ var key = await mgmt.ApiKeys.IssueAsync(game.Id, new IssueApiKeyParams { Environ
 Console.WriteLine(key.Secret); // shown once
 await mgmt.Game(game.Id, "sandbox").Banks.CreateAsync(new CreateBankParams { Name = "Eko Trust Bank", BaseCurrency = "NGN" });
 ```
+
+`mgmt.Games.UpdateAsync(id, new UpdateGameParams { ... })` renames or suspends a game; `mgmt.Games.DeleteAsync(id)` deletes it and revokes its keys.
 
 ## Behaviour
 

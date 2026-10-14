@@ -93,6 +93,10 @@ public sealed record Entry
     public string Side { get; init; } = "";
     public long AmountMinor { get; init; }
     public long BalanceAfter { get; init; }
+    /// <summary>"principal", "fee" or "levy". Fee and levy lines carry the rule and its name.</summary>
+    public string Kind { get; init; } = "principal";
+    public string? FeeRuleId { get; init; }
+    public string? Description { get; init; }
 }
 
 public sealed record Initiator
@@ -144,6 +148,8 @@ public sealed record HistoryItem
     public long AmountMinor { get; init; }
     public string AmountDisplay { get; init; } = "";
     public long BalanceAfter { get; init; }
+    /// <summary>"principal", "fee" or "levy". A fee or levy line's narration is the fee's name.</summary>
+    public string Kind { get; init; } = "principal";
     public string? Narration { get; init; }
     public string? Reference { get; init; }
     public Counterparty? Counterparty { get; init; }
@@ -166,6 +172,8 @@ public sealed record Hold
     public string AccountId { get; init; } = "";
     public string? DestinationAccountId { get; init; }
     public long AmountMinor { get; init; }
+    /// <summary>Held on top of the amount for the capture's expected fees.</summary>
+    public long ReservedFeeMinor { get; init; }
     public long? CapturedAmountMinor { get; init; }
     public string Status { get; init; } = "";
     public string Reason { get; init; } = "";
@@ -244,6 +252,11 @@ public sealed record TransferResult
     public Transaction Transaction { get; init; } = new();
     public Balance SourceBalance { get; init; } = new();
     public Balance? DestinationBalance { get; init; }
+    /// <summary>Fees and levies charged to the sender on top of the amount.</summary>
+    public List<FeeCharge> Fees { get; init; } = new();
+    public long FeesTotalMinor { get; init; }
+    /// <summary>Amount plus fees.</summary>
+    public long TotalDebitMinor { get; init; }
 }
 
 public sealed record HoldResult
@@ -258,6 +271,9 @@ public sealed record CaptureResult
     public Transaction Transaction { get; init; } = new();
     public Balance SourceBalance { get; init; } = new();
     public Balance? DestinationBalance { get; init; }
+    public List<FeeCharge> Fees { get; init; } = new();
+    public long FeesTotalMinor { get; init; }
+    public long TotalDebitMinor { get; init; }
 }
 
 public sealed record ClockJobs
@@ -333,6 +349,8 @@ public sealed record TransferParams
     public string? Reference { get; init; }
     public string? Narration { get; init; }
     public Dictionary<string, object?>? Metadata { get; init; }
+    /// <summary>Refuse with <see cref="FeeChangedException"/> if the fees now total more, e.g. a quote's FeesTotalMinor.</summary>
+    public long? MaxFeeMinor { get; init; }
 }
 
 public sealed record PlaceHoldParams
@@ -345,6 +363,8 @@ public sealed record PlaceHoldParams
     public string? DestinationAccountNumber { get; init; }
     public DateTimeOffset? ExpiresAtGame { get; init; }
     public long? ExpiresInGameSeconds { get; init; }
+    /// <summary>Caps the capture fee reserved now (<see cref="FeeChangedException"/> if higher).</summary>
+    public long? MaxFeeMinor { get; init; }
 }
 
 public sealed record CaptureHoldParams
@@ -356,6 +376,8 @@ public sealed record CaptureHoldParams
     public string? Narration { get; init; }
     public string? Reference { get; init; }
     public Dictionary<string, object?>? Metadata { get; init; }
+    /// <summary>Refuse with <see cref="FeeChangedException"/> if the capture's fees now total more.</summary>
+    public long? MaxFeeMinor { get; init; }
 }
 
 public sealed record ReverseParams
@@ -405,6 +427,154 @@ public sealed record AdvanceClockParams
     public long? Hours { get; init; }
     public long? Days { get; init; }
     public DateTimeOffset? To { get; init; }
+}
+
+// ---- fees and charges ----
+
+public static class FeeEvents
+{
+    public const string Transfer = "transfer";
+    public const string HoldCapture = "hold_capture";
+    public const string AccountMaintenance = "account_maintenance";
+}
+
+public static class FeeModels
+{
+    public const string Fixed = "fixed";
+    public const string Percentage = "percentage";
+    public const string Combined = "combined";
+}
+
+public static class FeeKinds
+{
+    /// <summary>Credits the bank's fee income.</summary>
+    public const string Fee = "fee";
+    /// <summary>Credits levies payable: money held for someone else.</summary>
+    public const string Levy = "levy";
+}
+
+/// <summary>A fee or levy a bank charges. Amounts are minor units; times are game time.</summary>
+public sealed record FeeRule
+{
+    public string Id { get; init; } = "";
+    public string BankId { get; init; } = "";
+    public string Code { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Event { get; init; } = "";
+    public string Kind { get; init; } = "";
+    public string Model { get; init; } = "";
+    public long FixedMinor { get; init; }
+    /// <summary>Basis points: 100 = 1%.</summary>
+    public long PercentageBps { get; init; }
+    public long? MinFeeMinor { get; init; }
+    public long? MaxFeeMinor { get; init; }
+    public long? MinAmountMinor { get; init; }
+    public long? MaxAmountMinor { get; init; }
+    public string Payer { get; init; } = "";
+    public string CreditAccount { get; init; } = "";
+    public string Status { get; init; } = "";
+    public DateTimeOffset EffectiveFrom { get; init; }
+    public DateTimeOffset? EffectiveTo { get; init; }
+    public int Version { get; init; }
+    /// <summary>"in_effect", "scheduled", "ended" or "inactive". Only in_effect rules charge.</summary>
+    public string State { get; init; } = "";
+    public List<string> Warnings { get; init; } = new();
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset UpdatedAt { get; init; }
+}
+
+public sealed record CreateFeeRuleParams
+{
+    public required string Code { get; init; }
+    public required string Name { get; init; }
+    /// <summary>See <see cref="FeeEvents"/>.</summary>
+    public required string Event { get; init; }
+    /// <summary>See <see cref="FeeModels"/>.</summary>
+    public required string Model { get; init; }
+    public string? Kind { get; init; }
+    public long? FixedMinor { get; init; }
+    public long? PercentageBps { get; init; }
+    public long? MinFeeMinor { get; init; }
+    public long? MaxFeeMinor { get; init; }
+    public long? MinAmountMinor { get; init; }
+    public long? MaxAmountMinor { get; init; }
+    public string? Status { get; init; }
+    public DateTimeOffset? EffectiveFrom { get; init; }
+    public DateTimeOffset? EffectiveTo { get; init; }
+    /// <summary>Start at the current game time.</summary>
+    public bool? StartNow { get; init; }
+}
+
+/// <summary>Changes a fee; null fields keep their value. Code and event cannot change.</summary>
+public sealed record UpdateFeeRuleParams
+{
+    public string? Name { get; init; }
+    public string? Kind { get; init; }
+    public string? Model { get; init; }
+    public long? FixedMinor { get; init; }
+    public long? PercentageBps { get; init; }
+    public long? MinFeeMinor { get; init; }
+    public long? MaxFeeMinor { get; init; }
+    public long? MinAmountMinor { get; init; }
+    public long? MaxAmountMinor { get; init; }
+    /// <summary>"active", or "inactive" to pause.</summary>
+    public string? Status { get; init; }
+    public DateTimeOffset? EffectiveFrom { get; init; }
+    public DateTimeOffset? EffectiveTo { get; init; }
+    public bool? StartNow { get; init; }
+    /// <summary>Fields to reset to "no limit", e.g. "max_fee_minor".</summary>
+    public List<string>? Clear { get; init; }
+}
+
+/// <summary>One fee or levy charged on a payment.</summary>
+public sealed record FeeCharge
+{
+    public string FeeRuleId { get; init; } = "";
+    public int FeeRuleVersion { get; init; }
+    public string Code { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Kind { get; init; } = "";
+    public long AmountMinor { get; init; }
+    public string CreditAccount { get; init; } = "";
+}
+
+public sealed record QuoteFeesParams
+{
+    public required string BankId { get; init; }
+    public required long AmountMinor { get; init; }
+    /// <summary>"transfer" (default) or "hold_capture".</summary>
+    public string? Event { get; init; }
+}
+
+public sealed record FeeQuote
+{
+    public string BankId { get; init; } = "";
+    public string Event { get; init; } = "";
+    public long AmountMinor { get; init; }
+    public List<FeeCharge> Fees { get; init; } = new();
+    public long FeesTotalMinor { get; init; }
+    public long TotalDebitMinor { get; init; }
+    public DateTimeOffset GameTime { get; init; }
+}
+
+public sealed record BookLine
+{
+    public string SystemRole { get; init; } = "";
+    public string AccountName { get; init; } = "";
+    public string AccountNumber { get; init; } = "";
+    public long BalanceMinor { get; init; }
+    public string BalanceDisplay { get; init; } = "";
+}
+
+/// <summary>The bank's own ledger accounts, from which its profit and loss derives.</summary>
+public sealed record BankBooks
+{
+    public string BankId { get; init; } = "";
+    public string Currency { get; init; } = "";
+    public long FeeIncomeMinor { get; init; }
+    public long LeviesPayableMinor { get; init; }
+    public List<BookLine> Accounts { get; init; } = new();
+    public DateTimeOffset AsOf { get; init; }
 }
 
 // ---- management ----
@@ -473,6 +643,14 @@ public sealed record AuditLog
     public string? CorrelationId { get; init; }
     public Dictionary<string, object?> Metadata { get; init; } = new();
     public DateTimeOffset CreatedAt { get; init; }
+}
+
+public sealed record UpdateGameParams
+{
+    public string? Name { get; init; }
+    public string? Slug { get; init; }
+    /// <summary>"active" or "suspended".</summary>
+    public string? Status { get; init; }
 }
 
 public sealed record IssueApiKeyParams

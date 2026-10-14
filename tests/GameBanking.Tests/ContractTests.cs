@@ -51,7 +51,7 @@ public class ContractTests(ITestOutputHelper output)
         var key = await mgmt.ApiKeys.IssueAsync(game.Id, new IssueApiKeyParams { Environment = "sandbox", Label = "contract", Scopes = Scopes.All.ToList() });
         Assert.StartsWith("gbe_test_sk_", key.Secret);
         var bank = await mgmt.Game(game.Id, "sandbox").Banks.CreateAsync(new CreateBankParams { Name = "Eko Trust Bank", BaseCurrency = "NGN" });
-        Assert.Equal(7, bank.SystemAccounts!.Count);
+        Assert.Equal(8, bank.SystemAccounts!.Count); // incl. levies_payable
         var readOnly = await mgmt.ApiKeys.IssueAsync(game.Id, new IssueApiKeyParams { Environment = "sandbox", Scopes = [Scopes.AccountRead] });
 
         var seen = new List<ResponseInfo>();
@@ -94,6 +94,7 @@ public class ContractTests(ITestOutputHelper output)
         var held = await gb.Holds.PlaceAsync(new PlaceHoldParams { AccountId = adaAcct.Id, AmountMinor = 3_000_00, Reason = "Order #1", DestinationAccountId = tundeAcct.Id });
         Assert.Equal(7_500_00, held.Balance.PostedBalance);
         Assert.Equal(4_500_00, held.Balance.AvailableBalance);
+        Assert.Equal(0, held.Hold.ReservedFeeMinor);
         var cap = await gb.Holds.CaptureAsync(held.Hold.Id, new CaptureHoldParams { AmountMinor = 2_000_00 });
         Assert.Equal("captured", cap.Hold.Status);
         Assert.Equal(5_500_00, cap.SourceBalance.AvailableBalance);
@@ -113,9 +114,54 @@ public class ContractTests(ITestOutputHelper output)
         Assert.Equal("reversal", rev.Type);
         Assert.Equal("reversed", (await gb.Transactions.GetAsync(t.Transaction.Id)).Status);
 
+        // Fees: a ₦50 + 1% transfer fee (max ₦500) via the developer credential, a levy via the game key.
+        var cfg = mgmt.Game(game.Id, "sandbox");
+        var fee = await cfg.Fees.CreateAsync(bank.Id, new CreateFeeRuleParams
+        {
+            Code = "transfer_fee", Name = "Transfer fee", Event = FeeEvents.Transfer, Model = FeeModels.Combined,
+            FixedMinor = 50_00, PercentageBps = 100, MaxFeeMinor = 500_00,
+        });
+        Assert.Equal("in_effect", fee.State);
+        Assert.Equal("fee_income", fee.CreditAccount);
+        var levy = await gb.Fees.CreateAsync(bank.Id, new CreateFeeRuleParams
+        {
+            Code = "stamp_duty", Name = "Stamp duty", Event = FeeEvents.Transfer, Kind = FeeKinds.Levy, Model = FeeModels.Fixed,
+            FixedMinor = 50_00, MinAmountMinor = 10_000_00,
+        });
+        Assert.Equal("levies_payable", levy.CreditAccount);
+        Assert.Equal(2, (await gb.Fees.ListAsync(bank.Id)).Count);
+
+        var quote = await gb.Fees.QuoteAsync(new QuoteFeesParams { BankId = bank.Id, AmountMinor = 1_000_00 });
+        Assert.Equal(60_00, quote.FeesTotalMinor);
+        var before = (await gb.Accounts.BalanceAsync(adaAcct.Id)).PostedBalance;
+        var pay = new TransferParams { SourceAccountId = adaAcct.Id, DestinationAccountId = tundeAcct.Id, AmountMinor = 1_000_00, MaxFeeMinor = quote.FeesTotalMinor };
+        var paid = await gb.Transfers.CreateAsync(pay);
+        Assert.Equal(60_00, paid.FeesTotalMinor);
+        Assert.Equal(1_060_00, paid.TotalDebitMinor);
+        Assert.Equal(before - 1_060_00, paid.SourceBalance.PostedBalance);
+        Assert.Equal(new[] { "fee", "fee", "principal", "principal" }, paid.Transaction.Entries.Select(e => e.Kind).OrderBy(k => k));
+        var latest = (await gb.Accounts.TransactionsAsync(adaAcct.Id, 2)).Data;
+        Assert.Contains(latest, l => l.Kind == "fee" && l.Narration == "Transfer fee");
+
+        await cfg.Fees.UpdateAsync(bank.Id, fee.Id, new UpdateFeeRuleParams { FixedMinor = 60_00 });
+        var changed = await Assert.ThrowsAsync<FeeChangedException>(() => gb.Transfers.CreateAsync(pay));
+        Assert.IsAssignableFrom<ConflictException>(changed);
+        Assert.Equal("fee_changed", changed.Code);
+
+        Assert.Equal(60_00, (await gb.Banks.BooksAsync(bank.Id)).FeeIncomeMinor);
+        await gb.Transactions.ReverseAsync(paid.Transaction.Id, new ReverseParams { Reason = "refund" });
+        Assert.Equal(0, (await gb.Banks.BooksAsync(bank.Id)).FeeIncomeMinor);
+        Assert.Equal("inactive", (await cfg.Fees.UpdateAsync(bank.Id, fee.Id, new UpdateFeeRuleParams { Status = "inactive" })).State);
+
         await gb.Clock.ConfigureAsync(new ConfigureClockParams { Mode = "manual" });
         Assert.NotEmpty((await gb.Clock.AdvanceAsync(new AdvanceClockParams { Days = 1 })).Clock.GameDay);
         var recon = await gb.ReconcileAsync();
         Assert.True(recon.Ok, JsonSerializer.Serialize(recon.Differences));
+
+        // Renaming and deleting a game. Deleting revokes its keys at once.
+        Assert.Equal("CS Game renamed", (await mgmt.Games.UpdateAsync(game.Id, new UpdateGameParams { Name = "CS Game renamed" })).Name);
+        await mgmt.Games.DeleteAsync(game.Id);
+        await Assert.ThrowsAsync<NotFoundException>(() => mgmt.Games.GetAsync(game.Id));
+        await Assert.ThrowsAsync<AuthenticationException>(() => gb.Clock.GetAsync());
     }
 }
