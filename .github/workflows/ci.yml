@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet test tests/GameBanking.Tests/GameBanking.Tests.csproj
+      - run: dotnet pack src/GameBanking/GameBanking.csproj -c Release -o dist
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Start the engine
+        run: |
+          docker compose -f ci/docker-compose.yml up -d
+          ./ci/wait-for-engine.sh
+      - run: dotnet test tests/GameBanking.Tests/GameBanking.Tests.csproj --logger "console;verbosity=normal"
+        env:
+          GBE_BASE_URL: http://localhost:8080
