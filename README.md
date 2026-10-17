@@ -67,6 +67,79 @@ await gb.Fees.CreateAsync(bankId, new CreateFeeRuleParams
 var books = await gb.Banks.BooksAsync(bankId); // FeeIncomeMinor, LeviesPayableMinor
 ```
 
+## Merchants and cards
+
+```csharp
+// A shop and its merchant account (card payments settle here).
+var shop = await gb.Merchants.CreateAsync(new CreateMerchantParams { ExternalMerchantId = "shop:mama-put", Name = "Mama Put", Category = "food" });
+var till = await gb.Accounts.OpenAsync(new OpenAccountParams { BankId = bankId, MerchantId = shop.Id });
+
+// Once per bank: turn on cards and add a program (bank:write).
+await gb.Banks.UpdateAsync(bankId, new UpdateBankParams { FeatureFlags = new() { ["cards"] = true } });
+await gb.CardPrograms.CreateAsync(bankId, new CardProgramParams { Name = "Classic" });
+
+// Issue a card: CardNumber and Cvv are shown only now.
+var issued = await gb.Cards.IssueAsync(new IssueCardParams { AccountId = accountId });
+
+// Pay: an approved payment is charged at once (status "captured"). A decline is a result, not an exception.
+var paid = await gb.CardAuthorizations.AuthorizeAsync(new AuthorizeCardParams { CardId = issued.Card.Id, MerchantAccountId = till.Id, AmountMinor = 2_500_00 });
+if (paid.Authorization.IsDeclined) ShowPlayer(paid.Authorization.DeclineCode); // e.g. DeclineCodes.InsufficientFunds
+
+// Or hold first when the final amount or the sale isn't settled yet (a fuel pump, a pre-order).
+var held = await gb.CardAuthorizations.AuthorizeAsync(new AuthorizeCardParams { CardId = issued.Card.Id, MerchantAccountId = till.Id, AmountMinor = 2_500_00, Capture = false });
+await gb.CardAuthorizations.CaptureAsync(held.Authorization.Id, new CaptureCardParams { AmountMinor = 2_100_00 }); // or ReleaseAsync; RefundAsync later, in parts
+
+await gb.Cards.ReportLostAsync(issued.Card.Id, "stolen"); // final; no replacement is issued
+```
+
+## Savings and fixed deposits
+
+```csharp
+// Once per bank: turn savings on and define products (bank:write).
+await gb.Banks.UpdateAsync(bankId, new UpdateBankParams { FeatureFlags = new() { ["savings"] = true } });
+var saver = await gb.DepositProducts.CreateAsync(bankId, new DepositProductParams { Code = "easy_saver", Name = "Easy Saver", Kind = "savings", RateTiers = [new(0, 300)] });
+var term = await gb.DepositProducts.CreateAsync(bankId, new DepositProductParams { Code = "term", Name = "Term Deposit", Kind = "fixed_deposit", Terms = [new(90, 800)] });
+
+// A savings account earns daily on the game clock and is paid monthly.
+var savings = await gb.Accounts.OpenAsync(new OpenAccountParams { BankId = bankId, PlayerId = playerId, ProductId = saver.Id });
+var position = await gb.Accounts.InterestAsync(savings.Id); // AccruedInterestMinor, NextPayoutDay, Payouts…
+
+// A fixed deposit (deposits:write); break it early with a quote first.
+var fd = await gb.FixedDeposits.OpenAsync(new OpenFixedDepositParams { SourceAccountId = accountId, ProductId = term.Id, TermDays = 90, AmountMinor = 50_000_00 });
+var quote = await gb.FixedDeposits.BreakQuoteAsync(fd.FixedDeposit.Id);
+await gb.FixedDeposits.BreakAsync(fd.FixedDeposit.Id, quote.PenaltyMinor); // PenaltyChangedException if it rose
+```
+
+## Webhooks: debit and credit alerts
+
+Every money movement on a player's account sends a signed `account.debited` or `account.credited` event to your endpoint. Verify it with the **raw** body:
+
+```csharp
+// Register once (webhooks:write). The secret is shown only here.
+var ep = await gb.Webhooks.Endpoints.CreateAsync(new CreateWebhookEndpointParams
+{
+    Url = "https://game.example.com/gbe/webhooks",
+    EventTypes = [WebhookEventTypes.AccountDebited, WebhookEventTypes.AccountCredited],
+});
+
+app.MapPost("/gbe/webhooks", async (HttpRequest req) => // ASP.NET Core minimal API
+{
+    using var ms = new MemoryStream();
+    await req.Body.CopyToAsync(ms);
+    WebhookEvent ev;
+    try { ev = WebhookVerifier.VerifyWebhook(ms.ToArray(), req.Headers[WebhookVerifier.SignatureHeader], secret); }
+    catch (WebhookVerificationException) { return Results.BadRequest(); }
+    if (ev.Type == WebhookEventTypes.AccountDebited)
+    {
+        var a = ev.Alert(); // AmountMinor, Charges, TotalMinor, BalanceAfter, Counterparty, Sequence…
+        NotifyPlayer(a.PlayerId, $"-{a.TotalDisplay}");
+    }
+    return Results.NoContent(); // answer within 10s; delivery is at least once, so dedupe on ev.Id
+});
+```
+
+`gb.Webhooks.Endpoints` also has `ListAsync`, `GetAsync`, `UpdateAsync` (Status `"disabled"` / `"active"`), `DeleteAsync`, `RotateSecretAsync` (the old secret keeps signing for 24 hours; pass both secrets to `VerifyWebhook`) and `TestAsync`. `gb.Webhooks.Events` has `ListAsync` / `IterateAsync` (the last 30 days, filterable by type and account, also a polling feed), `GetAsync`, `DeliveriesAsync` and `RedeliverAsync`.
+
 ## Setup and CI
 
 ```csharp

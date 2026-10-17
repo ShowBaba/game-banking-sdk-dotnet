@@ -35,6 +35,7 @@ public class GameBankException : Exception
         403 => new PermissionDeniedException(status, code, message, details, requestId, retryAfter, inner),
         404 => new NotFoundException(status, code, message, details, requestId, retryAfter, inner),
         409 when code == "fee_changed" => new FeeChangedException(status, code, message, details, requestId, retryAfter, inner),
+        409 when code == "penalty_changed" => new PenaltyChangedException(status, code, message, details, requestId, retryAfter, inner),
         409 => new ConflictException(status, code, message, details, requestId, retryAfter, inner),
         429 => new RateLimitException(status, code, message, details, requestId, retryAfter, inner),
         422 when code == "insufficient_funds" => new InsufficientFundsException(status, code, message, details, requestId, retryAfter, inner),
@@ -63,6 +64,9 @@ public class ConflictException(int s, string c, string m, IReadOnlyDictionary<st
 /// changed after the player saw a quote. Details["fees"] lists the current charges; get a new quote.
 /// </summary>
 public class FeeChangedException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)
+    : ConflictException(s, c, m, d, r, ra, i);
+/// <summary>409 penalty_changed: breaking a fixed deposit would cost more than MaxPenaltyMinor. Details["quote"] has the figures.</summary>
+public class PenaltyChangedException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)
     : ConflictException(s, c, m, d, r, ra, i);
 /// <summary>400, 413, 415, or a request the SDK rejected before sending it.</summary>
 public class InvalidRequestException(int s, string c, string m, IReadOnlyDictionary<string, object?>? d, string? r, double? ra, Exception? i)

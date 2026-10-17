@@ -40,6 +40,13 @@ public sealed class GameBankClient
     public FeesResource Fees { get; }
     public CurrenciesResource Currencies { get; }
     public ClockResource Clock { get; }
+    public WebhooksResource Webhooks { get; }
+    public MerchantsResource Merchants { get; }
+    public CardProgramsResource CardPrograms { get; }
+    public CardsResource Cards { get; }
+    public CardAuthorizationsResource CardAuthorizations { get; }
+    public DepositProductsResource DepositProducts { get; }
+    public FixedDepositsResource FixedDeposits { get; }
 
     public GameBankClient(GameBankOptions? options = null) : this(new Transport(options ?? new GameBankOptions())) { }
 
@@ -48,6 +55,9 @@ public sealed class GameBankClient
         _t = t;
         Players = new(t); Accounts = new(t); Funding = new(t); Transfers = new(t); Holds = new(t);
         Transactions = new(t); Banks = new(t); Fees = new(t); Currencies = new(t); Clock = new(t);
+        Webhooks = new(t);
+        Merchants = new(t); CardPrograms = new(t); Cards = new(t); CardAuthorizations = new(t);
+        DepositProducts = new(t); FixedDeposits = new(t);
     }
 
     internal Transport Transport => _t;
@@ -95,7 +105,7 @@ public sealed class AccountsResource
         p ??= new();
         var q = new Dictionary<string, string?>
         {
-            ["bank_id"] = p.BankId, ["player_id"] = p.PlayerId,
+            ["bank_id"] = p.BankId, ["player_id"] = p.PlayerId, ["merchant_id"] = p.MerchantId,
             ["include_system"] = p.IncludeSystem ? "true" : null, ["limit"] = p.Limit?.ToString(),
         };
         return (await _t.SendAsync<DataList<Account>>(new(HttpMethod.Get, "/v1/accounts") { Query = q }, o, ct).ConfigureAwait(false)).Data;
@@ -127,6 +137,10 @@ public sealed class AccountsResource
     }
 
     /// <summary>An account's holds; status may be null for all.</summary>
+    /// <summary>A savings or fixed-deposit account's rate, accrued interest, next payout and recent payouts.</summary>
+    public Task<AccountInterest> InterestAsync(string accountId, RequestOptions? o = null, CancellationToken ct = default) =>
+        _t.SendAsync<AccountInterest>(new(HttpMethod.Get, $"/v1/accounts/{Ops.Id(accountId)}/interest"), o, ct);
+
     public async Task<List<Hold>> HoldsAsync(string accountId, string? status = null, RequestOptions? o = null, CancellationToken ct = default) =>
         (await _t.SendAsync<DataList<Hold>>(new(HttpMethod.Get, $"/v1/accounts/{Ops.Id(accountId)}/holds")
         { Query = new Dictionary<string, string?> { ["status"] = status } }, o, ct).ConfigureAwait(false)).Data;

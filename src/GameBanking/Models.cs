@@ -24,6 +24,12 @@ public sealed record Account
     public string BankCode { get; init; } = "";
     public string OwnerType { get; init; } = "";
     public string? PlayerId { get; init; }
+    /// <summary>Set on merchant accounts.</summary>
+    public string? MerchantId { get; init; }
+    /// <summary>The deposit product of a savings or fixed-deposit account.</summary>
+    public string? ProductId { get; init; }
+    /// <summary>Receives the account's interest; null pays the account itself.</summary>
+    public string? InterestAccountId { get; init; }
     public string? SystemRole { get; init; }
     public string AccountType { get; init; } = "";
     public string AccountNumber { get; init; } = "";
@@ -302,7 +308,13 @@ public sealed record UpsertPlayerParams
 public sealed record OpenAccountParams
 {
     public required string BankId { get; init; }
-    public required string PlayerId { get; init; }
+    /// <summary>For a player account.</summary>
+    public string? PlayerId { get; init; }
+    /// <summary>For a merchant account, which receives card payments.</summary>
+    public string? MerchantId { get; init; }
+    /// <summary>A savings product: the account earns interest and follows its rules.</summary>
+    public string? ProductId { get; init; }
+    public string? InterestAccountId { get; init; }
     public string? AccountType { get; init; }
     public string? AccountName { get; init; }
     public string? Currency { get; init; }
@@ -313,6 +325,7 @@ public sealed record ListAccountsParams
 {
     public string? BankId { get; init; }
     public string? PlayerId { get; init; }
+    public string? MerchantId { get; init; }
     public bool IncludeSystem { get; init; }
     public int? Limit { get; init; }
 }
@@ -573,6 +586,12 @@ public sealed record BankBooks
     public string Currency { get; init; } = "";
     public long FeeIncomeMinor { get; init; }
     public long LeviesPayableMinor { get; init; }
+    /// <summary>Interest paid to savers (negative).</summary>
+    public long InterestExpenseMinor { get; init; }
+    /// <summary>Interest earned by savers, not yet paid.</summary>
+    public long AccruedInterestMinor { get; init; }
+    /// <summary>Money in active fixed deposits.</summary>
+    public long FixedDepositsMinor { get; init; }
     public List<BookLine> Accounts { get; init; } = new();
     public DateTimeOffset AsOf { get; init; }
 }
@@ -673,5 +692,13 @@ public static class Scopes
     public const string FundingCreate = "funding:create";
     public const string TransactionReverse = "transaction:reverse";
     public const string LimitsWrite = "limits:write";
-    public static readonly IReadOnlyList<string> All = [BankRead, BankWrite, AccountRead, AccountWrite, TransferCreate, FundingCreate, TransactionReverse, LimitsWrite];
+    public const string WebhooksRead = "webhooks:read";
+    public const string WebhooksWrite = "webhooks:write";
+    public const string MerchantsWrite = "merchants:write";
+    public const string CardsRead = "cards:read";
+    public const string CardsWrite = "cards:write";
+    public const string CardsCharge = "cards:charge";
+    public const string DepositsWrite = "deposits:write";
+    public static readonly IReadOnlyList<string> All = [BankRead, BankWrite, AccountRead, AccountWrite, TransferCreate, FundingCreate, TransactionReverse, LimitsWrite,
+        WebhooksRead, WebhooksWrite, MerchantsWrite, CardsRead, CardsWrite, CardsCharge, DepositsWrite];
 }

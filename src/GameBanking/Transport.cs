@@ -52,7 +52,7 @@ internal sealed record Operation(HttpMethod Method, string Path)
 
 internal sealed class Transport
 {
-    public const string Version = "0.2.0";
+    public const string Version = "0.5.0";
 
     internal static readonly JsonSerializerOptions Json = new()
     {
