@@ -21,7 +21,7 @@ internal sealed record ApiKeyEnvelope(ApiKey ApiKey);
 /// never ship it in a game client.
 /// </summary>
 /// <example><code>
-/// var gb = new GameBankClient(new GameBankOptions { ApiKey = key, BaseUrl = "https://engine.example.com" });
+/// var gb = new GameBankClient(new GameBankOptions { ApiKey = key, BaseUrl = "https://api.gamebank.dev" });
 /// var r = await gb.Transfers.CreateAsync(new TransferParams { SourceAccountId = a, DestinationAccountNumber = n, AmountMinor = 1000 });
 /// </code></example>
 public sealed class GameBankClient

@@ -3,8 +3,12 @@
 Server-side SDK for the Game Banking Engine. .NET 8, no dependencies beyond the framework.
 
 > Game API keys move money. Use this SDK on your game servers only, never in a Unity or other game client build.
+>
+> In-game money only: the Game Banking Engine simulates banking for game currencies. It holds no real money and isn't a regulated financial service, so don't use it for balances players can cash out or exchange for real money.
 
 ## Install
+
+From [NuGet](https://www.nuget.org/packages/GameBanking/):
 
 ```bash
 dotnet add package GameBanking
@@ -18,7 +22,7 @@ using GameBanking;
 var gb = new GameBankClient(new GameBankOptions
 {
     ApiKey = Environment.GetEnvironmentVariable("GBE_API_KEY"),
-    BaseUrl = "https://your-engine.example.com",
+    BaseUrl = "https://api.gamebank.dev",
 });
 
 var player = await gb.Players.UpsertAsync(new UpsertPlayerParams { ExternalPlayerId = "user-42", DisplayName = "Ada Obi" });
