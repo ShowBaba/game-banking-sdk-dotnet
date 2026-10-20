@@ -19,11 +19,8 @@ dotnet add package GameBanking
 ```csharp
 using GameBanking;
 
-var gb = new GameBankClient(new GameBankOptions
-{
-    ApiKey = Environment.GetEnvironmentVariable("GBE_API_KEY"),
-    BaseUrl = "https://api.gamebank.dev",
-});
+// Talks to https://api.gamebank.dev. Set BaseUrl only for a local or self-hosted engine.
+var gb = new GameBankClient(new GameBankOptions { ApiKey = Environment.GetEnvironmentVariable("GBE_API_KEY") });
 
 var player = await gb.Players.UpsertAsync(new UpsertPlayerParams { ExternalPlayerId = "user-42", DisplayName = "Ada Obi" });
 var account = await gb.Accounts.OpenAsync(new OpenAccountParams { BankId = bankId, PlayerId = player.Id });
@@ -147,7 +144,7 @@ app.MapPost("/gbe/webhooks", async (HttpRequest req) => // ASP.NET Core minimal 
 ## Setup and CI
 
 ```csharp
-var mgmt = new GameBankManagement(new GameBankOptions { ApiKey = devCredential, BaseUrl = baseUrl });
+var mgmt = new GameBankManagement(new GameBankOptions { ApiKey = devCredential });
 var game = await mgmt.Games.CreateAsync("Lagos Hustle");
 var key = await mgmt.ApiKeys.IssueAsync(game.Id, new IssueApiKeyParams { Environment = "sandbox" });
 Console.WriteLine(key.Secret); // shown once

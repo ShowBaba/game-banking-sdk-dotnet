@@ -6,12 +6,15 @@ using System.Text.Json.Serialization;
 
 namespace GameBanking;
 
-/// <summary>Client configuration. ApiKey and BaseUrl default to GBE_API_KEY and GBE_BASE_URL.</summary>
+/// <summary>Client configuration. ApiKey defaults to GBE_API_KEY; BaseUrl to GBE_BASE_URL, then the hosted engine.</summary>
 public sealed record GameBankOptions
 {
+    /// <summary>The hosted engine. Override it with <see cref="BaseUrl"/> or GBE_BASE_URL for a local or self-hosted engine.</summary>
+    public const string DefaultBaseUrl = "https://api.gamebank.dev";
+
     /// <summary>Game API key, developer credential or sign-in session token.</summary>
     public string? ApiKey { get; init; }
-    /// <summary>The engine's address, e.g. https://game-banking-engine.onrender.com.</summary>
+    /// <summary>The engine's address. Defaults to GBE_BASE_URL, then https://api.gamebank.dev. Set it only for a local or self-hosted engine.</summary>
     public string? BaseUrl { get; init; }
     /// <summary>Per-attempt timeout. Default 30 seconds.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
@@ -77,8 +80,9 @@ internal sealed class Transport
     {
         var key = opts.ApiKey ?? System.Environment.GetEnvironmentVariable("GBE_API_KEY");
         if (string.IsNullOrWhiteSpace(key)) throw new GameBankException(0, "missing_api_key", "Set ApiKey or GBE_API_KEY.");
-        var url = opts.BaseUrl ?? System.Environment.GetEnvironmentVariable("GBE_BASE_URL");
-        if (string.IsNullOrWhiteSpace(url)) throw new GameBankException(0, "missing_base_url", "Set BaseUrl (your engine's address) or GBE_BASE_URL.");
+        var url = opts.BaseUrl;
+        if (string.IsNullOrWhiteSpace(url)) url = System.Environment.GetEnvironmentVariable("GBE_BASE_URL");
+        if (string.IsNullOrWhiteSpace(url)) url = GameBankOptions.DefaultBaseUrl;
         _apiKey = key.Trim();
         BaseUrl = url.TrimEnd('/');
         Environment = EnvironmentOf(_apiKey);

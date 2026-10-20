@@ -63,7 +63,11 @@ public class CoreTests
             Environment.SetEnvironmentVariable("GBE_API_KEY", null);
             Environment.SetEnvironmentVariable("GBE_BASE_URL", null);
             Assert.Equal("missing_api_key", Assert.Throws<GameBankException>(() => new GameBankClient(new GameBankOptions { BaseUrl = "http://e" })).Code);
-            Assert.Equal("missing_base_url", Assert.Throws<GameBankException>(() => new GameBankClient(new GameBankOptions { ApiKey = "gbe_test_sk_x" })).Code);
+            Assert.Equal("https://api.gamebank.dev", new GameBankClient(new GameBankOptions { ApiKey = "gbe_test_sk_x" }).BaseUrl);
+            Assert.Equal(GameBankOptions.DefaultBaseUrl, new GameBankManagement(new GameBankOptions { ApiKey = "gbe_dev_x" }).BaseUrl);
+            Environment.SetEnvironmentVariable("GBE_BASE_URL", "http://env");
+            Assert.Equal("http://env", new GameBankClient(new GameBankOptions { ApiKey = "gbe_test_sk_x" }).BaseUrl);
+            Assert.Equal("http://explicit", new GameBankClient(new GameBankOptions { ApiKey = "gbe_test_sk_x", BaseUrl = "http://explicit/" }).BaseUrl);
         }
         finally
         {
