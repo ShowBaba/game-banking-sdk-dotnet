@@ -1,3 +1,6 @@
+# Publishes GameBanking to nuget.org via Trusted Publishing (OIDC).
+# One-time setup: nuget.org → Trusted Publishing → repo ShowBaba/game-banking-sdk-dotnet,
+# workflow publish.yml, glob GameBanking. GitHub secret NUGET_USER = nuget.org profile name.
 name: Publish to NuGet
 
 on:
@@ -5,6 +8,10 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+
+concurrency:
+  group: nuget-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -20,6 +27,15 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Require NUGet trusted publishing secret
+        env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+        run: |
+          if [ -z "$NUGET_USER" ]; then
+            echo "::error::Set repository secret NUGET_USER to your nuget.org username (profile name, not email)."
+            exit 1
+          fi
+
       - name: Validate tag matches project version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -32,6 +48,12 @@ jobs:
 
       - run: dotnet test tests/GameBanking.Tests/GameBanking.Tests.csproj
       - run: dotnet pack src/GameBanking/GameBanking.csproj -c Release -o dist
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: dist/*.nupkg
 
       - name: NuGet login (trusted publishing)
         id: login

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0
+
 - **No base URL needed.** Clients talk to the hosted engine at `https://api.gamebank.dev` by default (`GameBankOptions.DefaultBaseUrl`). `BaseUrl` and `GBE_BASE_URL` still override it, for a local or self-hosted engine. The `missing_base_url` error is gone. `GameBankClient` and `GameBankManagement` expose `BaseUrl`.
 - **Card payments charge at once by default.** `CardAuthorizations.AuthorizeAsync` now captures an approved payment in the same call (the engine's new default); the result then also carries `Transaction`, `MerchantBalance` and `TotalDebitMinor`. Set `Capture = false` to hold the payment for a later capture or release as before.
 

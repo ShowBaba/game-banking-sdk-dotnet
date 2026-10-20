@@ -174,3 +174,30 @@ docker compose -f ci/docker-compose.yml down -v
 ```
 
 To test against a local engine build instead, build its image and set `GBE_ENGINE_IMAGE` to that tag. CI (`.github/workflows/ci.yml`) runs both on every push.
+
+## Publishing to NuGet (GitHub Actions)
+
+Releases use [NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)—no long-lived API key in the repo.
+
+**One-time setup**
+
+1. [nuget.org](https://www.nuget.org) → account → **Trusted Publishing** → create a policy:
+   - Repository owner `ShowBaba`, repository `game-banking-sdk-dotnet`
+   - Workflow file `publish.yml`, environment blank
+   - Glob pattern `GameBanking`, scope **Push new packages and package versions**
+2. GitHub → this repo → **Settings → Secrets and variables → Actions** → secret `NUGET_USER` = your nuget.org username (e.g. `samshoyemi`).
+
+**Each release**
+
+1. Bump `<Version>` in `src/GameBanking/GameBanking.csproj` and note the change in `CHANGELOG.md`.
+2. Commit and push to `main`.
+3. Tag the same version and push the tag (the tag must match the csproj version):
+
+   ```bash
+   git tag v0.6.0
+   git push origin v0.6.0
+   ```
+
+4. Open **Actions → Publish to NuGet** and confirm the run succeeded. The package appears on [nuget.org/packages/GameBanking](https://www.nuget.org/packages/GameBanking) after a short delay.
+
+You can also run **Publish to NuGet** manually from the Actions tab (`workflow_dispatch`) without a tag; it packs whatever `<Version>` is on the branch you run from.
